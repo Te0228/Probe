@@ -19,15 +19,64 @@ Every step produces a **TraceEvent** written to an append-only JSONL trace log. 
 # 1. Install
 pip install -e .
 
-# 2. Set your API key
+# 2. Set your API key (optional — heuristic mode works without it)
 export ANTHROPIC_API_KEY=your-key
 
-# 3. Debug a failing test
+# 3. Debug any Python script
+probe debug --script broken.py
+
+# 4. Debug any Python command
+probe debug --run "python -m myapp serve"
+
+# 5. Debug a failing pytest test
 probe debug --test "pytest tests/fixtures/type_mismatch/test_calculator.py"
 
-# Or describe a bug
-probe debug --describe "Comparing str to int in the calculator module"
+# 6. Or use probe automatically in your test flow
+pytest tests/ --probe
 ```
+
+## Demo Projects
+
+Two realistic multi-file Python projects with known bugs — run them and see how Probe diagnoses each:
+
+### 1. Data CLI (`tests/demo_projects/data_cli/`)
+
+A data processing CLI tool. Crashes when finding the best-selling product from empty input.
+
+```bash
+# Works fine with data:
+python -m tests.demo_projects.data_cli.cli bestseller tests/demo_projects/data_cli/sample_data.csv
+
+# Crashes with empty input — Probe diagnoses it:
+echo "# empty" > /tmp/empty.csv
+probe debug --run "python -m tests.demo_projects.data_cli.cli bestseller /tmp/empty.csv"
+```
+
+**Bug**: `find_best_seller()` calls `max()` on an empty dict → `ValueError: max() arg is an empty sequence`
+
+### 2. Task Service (`tests/demo_projects/task_service/`)
+
+A task management service. Crashes when operating on a non-existent task.
+
+```bash
+# Works fine:
+python -m tests.demo_projects.task_service.server create "Fix login" --assignee alice
+
+# Crashes on nonexistent task — Probe diagnoses it:
+probe debug --run "python -m tests.demo_projects.task_service.server complete TASK-999"
+```
+
+**Bug**: `update_status()` returns `None` for unknown task IDs, and `server.py` dereferences it → `AttributeError: 'NoneType' object has no attribute 'id'`
+
+### Known Bugs in Fixtures (`tests/fixtures/`)
+
+| Fixture | Bug Type | Run with |
+|---------|----------|----------|
+| `type_mismatch/` | `int + str` concatenation | `pytest tests/fixtures/type_mismatch/ --probe` |
+| `null_reference/` | `None` attribute access | `pytest tests/fixtures/null_reference/ --probe` |
+| `off_by_one/` | Loop boundary error | `pytest tests/fixtures/off_by_one/ --probe` |
+| `wrong_return_value/` | `>` instead of `>=` | `pytest tests/fixtures/wrong_return_value/ --probe` |
+| `import_error/` | Missing module import | `pytest tests/fixtures/import_error/ --probe` |
 
 After the session completes, open the HTML report in any browser:
 
