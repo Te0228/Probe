@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "probe"
+version = "0.1.0"
+description = "An IDE-agnostic, MCP-native, hypothesis-driven AI debugging agent"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.11"
+dependencies = [
+    "debugpy>=1.8",
+    "anthropic>=0.40",
+    "mcp>=1.0",
+    "typer>=0.15",
+    "rich>=13.0",
+]
+
+[project.scripts]
+probe = "probe.cli:app"
+
+[project.entry-points.pytest11]
+probe = "probe.pytest_plugin"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/probe"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/**/*.py",
+    "tests/**/*.py",
+]

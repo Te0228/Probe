@@ -1,0 +1,32 @@
+[
+  {
+    "name": "type_mismatch",
+    "test_command": "pytest tests/fixtures/type_mismatch/test_calculator.py",
+    "expected_root_cause_category": "type_mismatch",
+    "description": "Comparing str to int causes TypeError in is_valid_total()"
+  },
+  {
+    "name": "null_reference",
+    "test_command": "pytest tests/fixtures/null_reference/test_finder.py",
+    "expected_root_cause_category": "null_reference",
+    "description": "get_and_format_name() calls .upper() on None, causing AttributeError"
+  },
+  {
+    "name": "off_by_one",
+    "test_command": "pytest tests/fixtures/off_by_one/test_slicer.py",
+    "expected_root_cause_category": "off_by_one",
+    "description": "get_slice() uses count-1 instead of count, returning one fewer item"
+  },
+  {
+    "name": "wrong_return_value",
+    "test_command": "pytest tests/fixtures/wrong_return_value/test_pricing.py",
+    "expected_root_cause_category": "wrong_return_value",
+    "description": "apply_bulk_discount() uses > instead of >=, missing threshold orders"
+  },
+  {
+    "name": "import_error",
+    "test_command": "pytest tests/fixtures/import_error/test_parser.py",
+    "expected_root_cause_category": "import_error",
+    "description": "parser.py imports from non-existent formatter module"
+  }
+]
