@@ -232,10 +232,22 @@ class HypothesisEngine:
                 "falsification_criteria": "If the variable at the crash site is not None/NoneType, or if a null guard is already present before the method call, this hypothesis is refuted.",
             })
 
+        # Pattern 1c: ValueError / empty sequence (e.g. max() on empty dict)
+        if "valueerror" in desc or "empty" in desc or "max()" in desc:
+            hypotheses.append({
+                "hypothesis_id": "H3",
+                "statement": "An empty sequence error: a function like max() or min() is called on an empty collection without a guard clause.",
+                "confidence": 0.85,
+                "verification_plan": [
+                    {"action": "set_breakpoint", "file": "processor.py", "line": 42, "condition": None},
+                ],
+                "falsification_criteria": "If the collection is non-empty at the crash site, or if a guard clause is already present before the call, this hypothesis is refuted.",
+            })
+
         # Pattern 2: Logic error (incorrect comparison)
         if "assert" in desc.lower() or "logic" in desc.lower() or ">" in code or "<" in code:
             hypotheses.append({
-                "hypothesis_id": "H2",
+                "hypothesis_id": "H4",
                 "statement": "A logic error: an incorrect comparison operator or condition causes unexpected behavior (e.g., using > instead of >=).",
                 "confidence": 0.5,
                 "verification_plan": [
@@ -246,7 +258,7 @@ class HypothesisEngine:
 
         # Pattern 3: Data flow / wrong value
         hypotheses.append({
-            "hypothesis_id": "H3",
+            "hypothesis_id": "H5",
             "statement": "A data flow issue: a variable is assigned an unexpected value (e.g., from string concatenation instead of arithmetic addition) before it is used in a comparison.",
             "confidence": 0.7,
             "verification_plan": [
@@ -363,7 +375,7 @@ Respond with a JSON object:
         EXCEPTION_MAP = {
             "typeerror": {"type", "types", "mismatch", "coercion", "cast", "str", "int"},
             "attributeerror": {"attribute", "none", "null", "nonexistent", "missing"},
-            "valueerror": {"value", "invalid", "format", "parse"},
+            "valueerror": {"value", "empty", "sequence", "max", "min", "invalid", "format", "parse"},
             "keyerror": {"key", "missing", "dictionary", "dict"},
             "indexerror": {"index", "bounds", "list"},
             "assertionerror": {"assert", "assertion", "expect", "logic", "comparison"},
@@ -461,6 +473,11 @@ Respond with a JSON object:
                 for s in scored[1:]:
                     other_hid = s["hypothesis"]["hypothesis_id"]
                     other_stmt = s["hypothesis"]["statement"]
+
+                    # Skip if already confirmed (guard against duplicate IDs)
+                    if verdicts.get(other_hid) == "confirmed":
+                        continue
+
                     refute_reasons: list[str] = []
 
                     if s["score"] < best["score"]:

@@ -102,7 +102,7 @@ def debug(
             source_code = _collect_source_code(script)
 
         if run_:
-            source_code = _collect_source_code(".")
+            source_code = _collect_source_code(run_)
 
         if test:
             test_command = test
@@ -130,13 +130,58 @@ def debug(
         console.print()
         if result["verdict"] == "confirmed":
             console.print(f"[bold green] Root cause confirmed![/bold green]")
-            console.print(f"  {result['root_cause']}")
+
+            # Location
+            loc = result.get("location", {})
+            if loc and loc.get("file"):
+                console.print(
+                    f"  [bold]Location:[/bold] {loc['file']}:{loc['line']}"
+                    f" in {loc.get('function', '')}"
+                )
+                if loc.get("code"):
+                    console.print(f"  [dim]  {loc['code']}[/dim]")
+
+            console.print(f"  [bold]Diagnosis:[/bold] {result['root_cause']}")
+
+            # Fix
+            fix = result.get("fix", {})
+            if fix.get("generated"):
+                console.print()
+                console.print(f"  [bold cyan]Suggested Fix:[/bold cyan] {fix.get('description', '')}")
+                if fix.get("diff"):
+                    console.print(f"  [dim]Sandbox: {fix.get('sandbox_result', '?')}[/dim]")
+                    for line in fix["diff"].split("\n")[:20]:
+                        if line.startswith("+++") or line.startswith("---"):
+                            console.print(f"  [bold]{line}[/bold]")
+                        elif line.startswith("+"):
+                            console.print(f"  [green]{line}[/green]")
+                        elif line.startswith("-"):
+                            console.print(f"  [red]{line}[/red]")
+                        elif line.startswith("@@"):
+                            console.print(f"  [cyan]{line}[/cyan]")
+                        else:
+                            console.print(f"  [dim]{line}[/dim]")
+            elif fix.get("description"):
+                console.print(f"  [yellow]Fix:[/yellow] {fix['description']}")
+
         elif result["verdict"] == "inconclusive":
             console.print(f"[bold yellow] Investigation inconclusive[/bold yellow]")
+
+            # Still show location if available
+            loc = result.get("location", {})
+            if loc and loc.get("file"):
+                console.print(
+                    f"  [bold]Crash site:[/bold] {loc['file']}:{loc['line']}"
+                    f" in {loc.get('function', '')}"
+                )
+                if loc.get("code"):
+                    console.print(f"  [dim]  {loc['code']}[/dim]")
+
             console.print(f"  Best hypothesis: {result.get('root_cause', 'N/A')}")
         else:
             console.print(f"[bold red] Unable to determine root cause[/bold red]")
 
+        console.print()
         console.print(f"  Iterations: {result['iterations']}")
         console.print(f"  Evidence items: {len(result.get('evidence', []))}")
         console.print()
@@ -157,12 +202,17 @@ def _collect_source_code(test_path: str) -> dict[str, str]:
     search_root = Path.cwd()
     test_file = None
 
-    # If test_path looks like "pytest tests/fixtures/type_mismatch/test_calc.py",
-    # extract the actual file path
+    # Extract the actual file/module path
     path_str = test_path
     if path_str.startswith("pytest "):
-        path_str = path_str[len("pytest "):].strip()
-        path_str = path_str.split()[0]  # Take first argument (the file)
+        path_str = path_str[len("pytest "):].strip().split()[0]
+    elif path_str.startswith("python "):
+        parts = path_str.strip().split()
+        if len(parts) >= 3 and parts[1] == "-m":
+            # python -m module.path → convert to file path
+            path_str = parts[2].replace(".", "/") + ".py"
+        elif len(parts) >= 2:
+            path_str = parts[1]
 
     candidate = Path(path_str)
     if candidate.exists():
@@ -172,8 +222,9 @@ def _collect_source_code(test_path: str) -> dict[str, str]:
         elif candidate.is_dir():
             search_root = candidate
 
-    # Walk Python files in the search root
+    # Collect .py files from the search root (non-recursive, just the module's directory)
     py_files = list(search_root.glob("*.py"))
+    py_files = [f for f in py_files if "__pycache__" not in str(f)]
     if test_file and test_file not in py_files:
         py_files.append(test_file)
 

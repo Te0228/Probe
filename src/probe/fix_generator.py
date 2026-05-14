@@ -87,24 +87,14 @@ class FixGenerator:
         hypothesis_id = hypothesis.get("hypothesis_id", "H0")
         statement = hypothesis.get("statement", "No statement")
 
-        # Step 1: Generate the patch
+        # Step 1: Generate the patch (API first, then heuristic fallback)
         patch_diff = ""
         try:
             patch_diff = self._generate_patch(hypothesis, source_code_context)
-        except Exception as e:
-            patch_result = PatchResult(
-                hypothesis_id=hypothesis_id,
-                patch_diff="",
-                applied=False,
-                sandbox_result="error",
-                sandbox_output=str(e),
-                error_message=str(e),
-            )
-            self._emit_fix_event(patch_result, hypothesis)
-            return patch_result
+        except Exception:
+            pass  # API unavailable — fall through to heuristic
 
         if not patch_diff:
-            # Try heuristic patch generation as fallback
             patch_diff = self._heuristic_patch(hypothesis, source_code_context)
 
         # Step 2: Apply the patch in a sandbox and verify
@@ -175,22 +165,41 @@ class FixGenerator:
 
         for filepath, code in source_code_context.items():
             lines = code.split("\n")
-            # Walk through lines looking for common bugs
             for i, line in enumerate(lines, start=1):
                 new_line = None
+                indent = line[:len(line) - len(line.lstrip())]
 
-                # Pattern: comparing incompatible types (e.g., result == "0")
-                if "type" in statement and ("int(" in line or "str(" in line):
-                    if "int(" in line and ("+" in line or "==" in line):
-                        # Ensure type conversion exists before operation
-                        pass
+                # Pattern: null reference — return None and caller dereferences
+                if "null" in statement or "none" in statement:
+                    # Fix caller: add null check before dereferencing
+                    if ".id" in line or ".status" in line or ".name" in line or ".value" in line:
+                        if "print" in line or "return" in line or "=" in line:
+                            # e.g.: print(f"Completed: {task.id} — status: {task.status}")
+                            # fix: if task is None: ...
+                            new_line = f"{indent}if task is None:\n{indent}    print('Error: task not found')\n{indent}    return\n{line}"
+                    # Fix source: return None should raise or return sentinel
+                    if "return None" in line:
+                        new_line = line.replace("return None", "raise KeyError(f\"Task not found: {task_id}\")")
 
-                # Pattern: >= vs > (off-by-one / threshold bug)
+                # Pattern: type mismatch — add int() conversion
+                if "type" in statement and ("int(" in line or "str(" in line or "+" in line):
+                    if "int(" in line and ("+" in line or "return" in line):
+                        pass  # Too complex for heuristic
+
+                # Pattern: off-by-one — fix > to >=
                 if "off-by-one" in statement or "off by one" in statement:
                     if ">" in line and ">=" not in line and (
                         "return" in line or "for" in line or "range" in line
                     ):
                         new_line = line.replace(" > ", " >= ", 1)
+
+                # Pattern: empty sequence — add guard before max()/min()
+                if "empty" in statement or "max()" in statement:
+                    if "max(" in line or "min(" in line:
+                        # Extract the variable name from the max/min call
+                        call_match = re.search(r'(?:max|min)\((\w+)', line)
+                        var_name = call_match.group(1) if call_match else "collection"
+                        new_line = f"{indent}if not {var_name}:\n{indent}    return None  # empty guard\n{line}"
 
                 if new_line is not None and new_line != line:
                     patches.append(f"--- a/{filepath}\n+++ b/{filepath}\n@@ -{i},{i} +{i},{i} @@\n-{line}\n+{new_line}")

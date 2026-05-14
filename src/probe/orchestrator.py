@@ -47,6 +47,7 @@ class Orchestrator:
             config=self._config, tracer=tracer
         )
         self._dap_client = None  # Set during run
+        self._source_code: dict[str, str] = {}
 
     def run(
         self,
@@ -87,8 +88,10 @@ class Orchestrator:
     ) -> dict[str, Any]:
         """Async implementation of the ReAct loop."""
 
+        self._source_code = source_code or {}
+
         # ── Step 0: Observe ────────────────────────────────────────────────
-        bug_info = await self._observe(test_command, bug_description, source_code,
+        bug_info = await self._observe(test_command, bug_description, self._source_code,
                                        script=script, run_command=run_command)
 
         # ── Set up DAP bridge ──────────────────────────────────────────────
@@ -190,6 +193,14 @@ class Orchestrator:
                         (h for h in hypotheses if h["hypothesis_id"] in confirmed),
                         hypotheses[0],
                     )
+                    # Extract location from evidence / runtime state
+                    location = self._extract_location(
+                        all_evidence, runtime_state, source_code or {}
+                    )
+                    # Generate a fix
+                    fix_result = self._generate_fix(
+                        confirmed_h, self._source_code, runtime_state, all_evidence
+                    )
                     self._emit("fix", {
                         "action": "conclude",
                         "verdict": "confirmed",
@@ -198,13 +209,22 @@ class Orchestrator:
                         "confidence": confirmed_h.get("confidence", 0),
                         "iterations": iteration + 1,
                         "all_evidence": all_evidence,
+                        "location": location,
+                        "fix": fix_result,
                     })
                     return {
                         "root_cause": confirmed_h.get("statement", ""),
                         "verdict": "confirmed",
                         "iterations": iteration + 1,
                         "evidence": all_evidence,
+                        "location": location,
+                        "fix": fix_result,
                     }
+
+                # Extract location regardless of verdict
+                location = self._extract_location(
+                    all_evidence, runtime_state, source_code or {}
+                )
 
                 all_refuted = all(
                     v == "refuted" for v in verdicts.values()
@@ -230,12 +250,14 @@ class Orchestrator:
                         "reason": f"All {len(hypotheses)} hypotheses refuted after {max_iterations} iterations.",
                         "iterations": iteration + 1,
                         "all_evidence": all_evidence,
+                        "location": location,
                     })
                     return {
                         "root_cause": "",
                         "verdict": "inconclusive",
                         "iterations": iteration + 1,
                         "evidence": all_evidence,
+                        "location": location,
                     }
 
                 # Partial inconclusive — treat best-confidence as tentative
@@ -247,12 +269,14 @@ class Orchestrator:
                     "confidence": best.get("confidence", 0),
                     "iterations": iteration + 1,
                     "all_evidence": all_evidence,
+                    "location": location,
                 })
                 return {
                     "root_cause": best.get("statement", ""),
                     "verdict": "inconclusive",
                     "iterations": iteration + 1,
                     "evidence": all_evidence,
+                    "location": location,
                 }
 
             # Shouldn't reach here, but just in case
@@ -281,27 +305,29 @@ class Orchestrator:
     ) -> dict[str, Any]:
         """Observe the bug — run the code to get failure output, or parse
         the bug description."""
-        description = ""
+        command = ""
         test_output = ""
 
         if script:
             import sys as _sys
             cmd = [_sys.executable, script]
-            test_output = self._run_test_no_debug(" ".join(cmd))
-            description = f"python {script}"
+            command = " ".join(cmd)
+            test_output = self._run_test_no_debug(command)
 
         if run_command:
-            test_output = self._run_test_no_debug(run_command)
-            if not description:
-                description = run_command
+            command = run_command
+            test_output = self._run_test_no_debug(command)
 
         if test_command:
-            test_output = self._run_test_no_debug(test_command)
-            if not description:
-                description = test_command
+            command = test_command
+            test_output = self._run_test_no_debug(command)
 
         if bug_description:
-            description = bug_description
+            command = bug_description
+
+        # Use the actual error output as the description for hypothesis generation.
+        # The hypothesis engine uses this to pattern-match exception types.
+        description = test_output.strip() if test_output.strip() else command
 
         self._emit("observe", {
             "action": "observe",
@@ -651,6 +677,10 @@ class Orchestrator:
                     other_hid = s["hypothesis"]["hypothesis_id"]
                     other_stmt = s["hypothesis"]["statement"]
 
+                    # Skip if already confirmed (guard against duplicate IDs)
+                    if verdicts.get(other_hid) == "confirmed":
+                        continue
+
                     # Build a specific refutation reason
                     refute_reasons: list[str] = []
                     if s["score"] < best["score"]:
@@ -751,6 +781,107 @@ class Orchestrator:
         if p.exists():
             return str(p.resolve())
         return None
+
+    def _extract_location(
+        self,
+        evidence: list[dict[str, Any]],
+        runtime_state: dict[str, Any],
+        source_code: dict[str, str],
+    ) -> dict[str, Any]:
+        """Extract the most likely bug location from evidence and runtime state."""
+        location: dict[str, Any] = {"file": "", "line": 0, "function": "", "code": ""}
+
+        # First, try stack frames from DAP execution
+        frames = runtime_state.get("stack_frames", [])
+        if frames:
+            top = frames[0]
+            location["file"] = top.get("file", "")
+            location["line"] = top.get("line", 0)
+            location["function"] = top.get("name", "")
+
+        # If no DAP frames, look in evidence for file/line
+        if not location["file"]:
+            for item in evidence:
+                for key in ("file", "filename", "location", "source_file"):
+                    if key in item:
+                        location["file"] = item[key]
+                        break
+                for key in ("line", "lineno", "line_number"):
+                    if key in item:
+                        location["line"] = item[key]
+                        break
+                if location["file"]:
+                    break
+
+        # Try to get file:line from test_output traceback — use the LAST
+        # user-code frame (skip <frozen>, <string>, and site-packages).
+        if not location["file"]:
+            test_output = runtime_state.get("test_output", "")
+            import re as _re
+            matches = list(_re.finditer(r'File "([^"]+)", line (\d+)', test_output))
+            for m in reversed(matches):
+                fname = m.group(1)
+                if fname.startswith("<") or "site-packages" in fname:
+                    continue
+                location["file"] = fname
+                location["line"] = int(m.group(2))
+                break
+
+        # Extract the actual code line from source
+        if location["file"] and source_code:
+            best_match = None
+            for src_path, code in source_code.items():
+                # Prefer exact path match, then suffix match
+                src = str(src_path)
+                loc = location["file"]
+                if src == loc or loc == src:
+                    best_match = (src_path, code)
+                    break
+                if loc.endswith(Path(src).name) and len(Path(src).name) > 3:
+                    if best_match is None:
+                        best_match = (src_path, code)
+
+            if best_match:
+                src_path, code = best_match
+                lines = code.split("\n")
+                if 0 < location["line"] <= len(lines):
+                    location["code"] = lines[location["line"] - 1].strip()
+                    location["file"] = str(src_path)
+
+        return location
+
+    def _generate_fix(
+        self,
+        confirmed_h: dict[str, Any],
+        source_code: dict[str, str],
+        runtime_state: dict[str, Any],
+        evidence: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Generate a fix suggestion for the confirmed hypothesis."""
+        fix_result: dict[str, Any] = {
+            "generated": False,
+            "diff": "",
+            "description": "",
+        }
+        if not source_code or not any(source_code.values()):
+            fix_result["description"] = "No source code available for fix generation."
+            return fix_result
+
+        try:
+            from probe.fix_generator import FixGenerator
+            gen = FixGenerator(config=self._config, tracer=self._tracer)
+            # Use heuristic patch directly (API-agnostic)
+            diff = gen._heuristic_patch(confirmed_h, source_code)
+            if diff:
+                fix_result["diff"] = diff
+                fix_result["generated"] = True
+                fix_result["description"] = "Suggested fix (review before applying)"
+            else:
+                fix_result["description"] = "No heuristic fix available for this bug pattern."
+        except Exception as exc:
+            fix_result["description"] = f"Fix generation error: {exc}"
+
+        return fix_result
 
     def _emit(self, step_type: str, data: dict[str, Any]) -> None:
         """Emit a TraceEvent through the tracer."""
