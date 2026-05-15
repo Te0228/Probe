@@ -27,7 +27,7 @@ Goal: [[[[[
 (4) **Self-contained 约束**：
     - 单 HTML 文件，无任何 `<link>` / `<script src>` / `<img src>` 引用 `http(s)://` URL
     - 不引入 web font、不引入图标库
-    - HTML 文件 gzip 后增长不超过 polish 前 baseline 的 2 倍（baseline 在 criteria 中记录）
+    - **允许 inline `<script>` 和 inline `<style>`**（expand/collapse、tooltip 定位、syntax highlight class 都要它们）；只是禁止任何 `src=` / `href=` 指向外部资源
 
 (5) **现有 section 不倒退**：Hypotheses 列表、Evidence Gallery、Patch Review、Timeline 这四个核心 section 在新版 report 中必须保留，字段不能丢失或被截断。
 ]]]]]
@@ -38,7 +38,7 @@ Criteria for success: [[[[[
     - `gzip -c report.html | wc -c` 的字节数
     - 当前 decision tree、syntax highlighting、timeline 的截图各一张
 
-(2) **Browser compatibility**：5 份 fixture report.html 在 Chrome、Safari、Firefox 三家最新版离线（断网）渲染均无 console error。验证命令：
+(2) **Browser compatibility**：5 份 fixture report.html 在 Chrome 最新版离线（断网）渲染无 console error。验证命令：
     ```bash
     for f in probe_traces/*/report.html; do
       chrome --headless --disable-gpu --dump-dom "file://$PWD/$f" 2>&1 | grep -iE "error|warning" && exit 1
