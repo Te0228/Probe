@@ -2,19 +2,40 @@
 
 import os
 from dataclasses import dataclass, field
-from pathlib import Path
 
 
 @dataclass
 class ProbeConfig:
-    """Probe configuration loaded from environment variables with sensible defaults."""
+    """Probe configuration loaded from environment variables with sensible defaults.
 
+    LLM backend selection:
+      - ``LLM_BACKEND``: ``"anthropic"`` (default) or ``"deepseek"``
+      - ``ANTHROPIC_API_KEY`` / ``PROBE_MODEL``: used when backend = anthropic
+      - ``DEEPSEEK_API_KEY`` / ``DEEPSEEK_MODEL``: used when backend = deepseek
+    """
+
+    # ── LLM backend selection ──────────────────────────────────────────────────
+    llm_backend: str = field(
+        default_factory=lambda: os.environ.get("LLM_BACKEND", "deepseek")
+    )
+
+    # ── Anthropic ──────────────────────────────────────────────────────────────
     anthropic_api_key: str = field(
         default_factory=lambda: os.environ.get("ANTHROPIC_API_KEY", "")
     )
     model: str = field(
         default_factory=lambda: os.environ.get("PROBE_MODEL", "claude-sonnet-4-20250514")
     )
+
+    # ── DeepSeek ───────────────────────────────────────────────────────────────
+    deepseek_api_key: str = field(
+        default_factory=lambda: os.environ.get("DEEPSEEK_API_KEY", "")
+    )
+    deepseek_model: str = field(
+        default_factory=lambda: os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+    )
+
+    # ── Run-time options ───────────────────────────────────────────────────────
     max_iterations: int = 3
     output_dir: str = "probe_traces"
     quiet: bool = False

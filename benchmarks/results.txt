@@ -1,0 +1,70 @@
+
+======================================================================
+  Running: type_mismatch
+  Command: pytest tests/fixtures/type_mismatch/test_calculator.py
+  Expected: type_mismatch
+======================================================================
+  Result: PASS  (42.4s)
+  Diagnosis correct: True
+  JSONL: OK
+  HTML:  OK
+
+======================================================================
+  Running: null_reference
+  Command: pytest tests/fixtures/null_reference/test_finder.py
+  Expected: null_reference
+======================================================================
+  Result: PASS  (42.2s)
+  Diagnosis correct: True
+  JSONL: OK
+  HTML:  OK
+
+======================================================================
+  Running: off_by_one
+  Command: pytest tests/fixtures/off_by_one/test_slicer.py
+  Expected: off_by_one
+======================================================================
+  Result: PASS  (42.3s)
+  Diagnosis correct: True
+  JSONL: OK
+  HTML:  OK
+
+======================================================================
+  Running: wrong_return_value
+  Command: pytest tests/fixtures/wrong_return_value/test_pricing.py
+  Expected: wrong_return_value
+======================================================================
+  Result: PASS  (42.3s)
+  Diagnosis correct: True
+  JSONL: OK
+  HTML:  OK
+
+======================================================================
+  Running: import_error
+  Command: pytest tests/fixtures/import_error/test_parser.py
+  Expected: import_error
+======================================================================
+  Result: PASS  (42.4s)
+  Diagnosis correct: True
+  JSONL: OK
+  HTML:  OK
+
+======================================================================
+  BENCHMARK SUMMARY
+======================================================================
+Fixture                Expected             Pass   Verdict        Time   Events  
+----------------------------------------------------------------------------
+type_mismatch          type_mismatch        PASS   confirmed      42.4s  14      
+null_reference         null_reference       PASS   confirmed      42.2s  14      
+off_by_one             off_by_one           PASS   confirmed      42.3s  9       
+wrong_return_value     wrong_return_value   PASS   confirmed      42.3s  9       
+import_error           import_error         PASS   confirmed      42.4s  8       
+----------------------------------------------------------------------------
+
+  Score: 5/5
+  Pass threshold: >= 3
+
+  PHASE 2 PASSED
+
+  Traces saved in: /Users/liute/my-claude-project/probe/probe_traces/
+

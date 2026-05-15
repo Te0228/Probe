@@ -1,4 +1,4 @@
-"""Hypothesis engine — Uses Claude API to generate structured, falsifiable hypotheses.
+"""Hypothesis engine — generates structured, falsifiable hypotheses.
 
 Every hypothesis MUST include:
 - hypothesis_id: unique identifier
@@ -6,6 +6,9 @@ Every hypothesis MUST include:
 - confidence: 0.0–1.0
 - verification_plan: list of DAP actions to test the hypothesis
 - falsification_criteria: what runtime evidence would disprove the hypothesis
+
+The engine talks to whatever provider is configured (Anthropic, DeepSeek, ...)
+via the ``LLMClient`` protocol. It never imports a vendor SDK directly.
 """
 
 import json
@@ -13,9 +16,8 @@ import os
 import re
 from typing import Any
 
-import anthropic
-
 from probe.config import ProbeConfig
+from probe.llm import LLMClient, get_llm_client
 
 # JSON Schema for structured hypothesis output
 HYPOTHESIS_SCHEMA = {
@@ -87,17 +89,11 @@ class HypothesisEngine:
     def __init__(self, config: ProbeConfig | None = None, tracer: Any | None = None):
         self._config = config or ProbeConfig.from_env()
         self._tracer = tracer
-        self._client: anthropic.Anthropic | None = None
+        self._client: LLMClient | None = None
 
-    def _get_client(self) -> anthropic.Anthropic:
+    def _get_client(self) -> LLMClient:
         if self._client is None:
-            api_key = self._config.anthropic_api_key
-            if not api_key:
-                raise ValueError(
-                    "ANTHROPIC_API_KEY environment variable is not set. "
-                    "Set it with: export ANTHROPIC_API_KEY=your-key"
-                )
-            self._client = anthropic.Anthropic(api_key=api_key)
+            self._client = get_llm_client(self._config)
         return self._client
 
     def generate_hypotheses(
@@ -138,38 +134,22 @@ class HypothesisEngine:
 
         user_prompt = "\n".join(prompt_parts)
 
-        # Try Claude API; fall back to heuristic if unavailable
+        # Try the configured LLM backend; fall back to heuristic if unavailable
         hypotheses: list[dict[str, Any]] = []
         raw_response = ""
         try:
             client = self._get_client()
-
-            response = client.messages.create(
-                model=self._config.model,
-                max_tokens=2048,
+            parsed = client.call_with_schema(
                 system=SYSTEM_PROMPT,
-                messages=[
-                    {"role": "user", "content": user_prompt},
-                ],
-                tools=[
-                    {
-                        "name": "output_hypotheses",
-                        "description": "Output structured hypotheses for debugging",
-                        "input_schema": HYPOTHESIS_SCHEMA,
-                    }
-                ],
-                tool_choice={"type": "tool", "name": "output_hypotheses"},
+                user=user_prompt,
+                schema=HYPOTHESIS_SCHEMA,
+                tool_name="output_hypotheses",
+                max_tokens=2048,
             )
-
-            # Extract the structured output
-            for block in response.content:
-                if block.type == "tool_use":
-                    raw_response = json.dumps(block.input, indent=2)
-                    hypotheses = block.input.get("hypotheses", [])
-                elif block.type == "text":
-                    raw_response += block.text
+            raw_response = json.dumps(parsed, indent=2)
+            hypotheses = parsed.get("hypotheses", [])
         except Exception as e:
-            raw_response = f"(API unavailable: {e})"
+            raw_response = f"(LLM unavailable: {e})"
             hypotheses = self._heuristic_hypotheses(bug_description, source_code_context)
 
         # Validate each hypothesis has falsification_criteria
@@ -305,14 +285,7 @@ Pay special attention to the falsification_criteria. If the evidence shows condi
 Respond with a JSON object:
 {{"verdict": "confirmed"|"refuted"|"inconclusive", "reasoning": "...", "evidence_cited": ["..."]}}"""
 
-        response = client.messages.create(
-            model=self._config.model,
-            max_tokens=1024,
-            messages=[{"role": "user", "content": prompt}],
-        )
-
-        # Parse the response
-        text = response.content[0].text if response.content else "{}"
+        text = client.call_text(prompt, max_tokens=1024) or "{}"
         try:
             result = json.loads(text)
         except json.JSONDecodeError:

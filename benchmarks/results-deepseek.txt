@@ -1,0 +1,100 @@
+
+======================================================================
+  Running: type_mismatch
+  Command: pytest tests/fixtures/type_mismatch/test_calculator.py
+  Expected: type_mismatch
+======================================================================
+  Result: PASS  (58.0s)
+  Diagnosis correct: True
+  JSONL: OK
+  HTML:  OK
+
+======================================================================
+  Running: null_reference
+  Command: pytest tests/fixtures/null_reference/test_finder.py
+  Expected: null_reference
+======================================================================
+  Result: PASS  (61.3s)
+  Diagnosis correct: True
+  JSONL: OK
+  HTML:  OK
+
+======================================================================
+  Running: off_by_one
+  Command: pytest tests/fixtures/off_by_one/test_slicer.py
+  Expected: off_by_one
+======================================================================
+  Result: PASS  (62.7s)
+  Diagnosis correct: True
+  JSONL: OK
+  HTML:  OK
+
+======================================================================
+  Running: wrong_return_value
+  Command: pytest tests/fixtures/wrong_return_value/test_pricing.py
+  Expected: wrong_return_value
+======================================================================
+  Result: PASS  (56.9s)
+  Diagnosis correct: True
+  JSONL: OK
+  HTML:  OK
+
+======================================================================
+  Running: import_error
+  Command: pytest tests/fixtures/import_error/test_parser.py
+  Expected: import_error
+======================================================================
+  Result: PASS  (55.9s)
+  Diagnosis correct: True
+  JSONL: OK
+  HTML:  OK
+
+======================================================================
+  BENCHMARK SUMMARY
+======================================================================
+Fixture                Expected             Pass   Verdict        Time   Events  
+----------------------------------------------------------------------------
+type_mismatch          type_mismatch        PASS   confirmed      58.0s  14      
+null_reference         null_reference       PASS   confirmed      61.3s  15      
+off_by_one             off_by_one           PASS   confirmed      62.7s  14      
+wrong_return_value     wrong_return_value   PASS   confirmed      56.9s  9       
+import_error           import_error         PASS   confirmed      55.9s  10      
+----------------------------------------------------------------------------
+
+  Score: 5/5
+  Pass threshold: >= 3
+
+  PHASE 2 PASSED
+
+  Traces saved in: /Users/liute/my-claude-project/probe/probe_traces/
+
+Exception ignored in: <function BaseSubprocessTransport.__del__ at 0x106d14f40>
+Traceback (most recent call last):
+  File "/Users/liute/.pyenv/versions/3.11.7/lib/python3.11/asyncio/base_subprocess.py", line 126, in __del__
+    self.close()
+  File "/Users/liute/.pyenv/versions/3.11.7/lib/python3.11/asyncio/base_subprocess.py", line 104, in close
+    proto.pipe.close()
+  File "/Users/liute/.pyenv/versions/3.11.7/lib/python3.11/asyncio/unix_events.py", line 765, in close
+    self.write_eof()
+  File "/Users/liute/.pyenv/versions/3.11.7/lib/python3.11/asyncio/unix_events.py", line 751, in write_eof
+    self._loop.call_soon(self._call_connection_lost, None)
+  File "/Users/liute/.pyenv/versions/3.11.7/lib/python3.11/asyncio/base_events.py", line 761, in call_soon
+    self._check_closed()
+  File "/Users/liute/.pyenv/versions/3.11.7/lib/python3.11/asyncio/base_events.py", line 519, in _check_closed
+    raise RuntimeError('Event loop is closed')
+RuntimeError: Event loop is closed
+Exception ignored in: <function BaseSubprocessTransport.__del__ at 0x106d14f40>
+Traceback (most recent call last):
+  File "/Users/liute/.pyenv/versions/3.11.7/lib/python3.11/asyncio/base_subprocess.py", line 126, in __del__
+    self.close()
+  File "/Users/liute/.pyenv/versions/3.11.7/lib/python3.11/asyncio/base_subprocess.py", line 104, in close
+    proto.pipe.close()
+  File "/Users/liute/.pyenv/versions/3.11.7/lib/python3.11/asyncio/unix_events.py", line 765, in close
+    self.write_eof()
+  File "/Users/liute/.pyenv/versions/3.11.7/lib/python3.11/asyncio/unix_events.py", line 751, in write_eof
+    self._loop.call_soon(self._call_connection_lost, None)
+  File "/Users/liute/.pyenv/versions/3.11.7/lib/python3.11/asyncio/base_events.py", line 761, in call_soon
+    self._check_closed()
+  File "/Users/liute/.pyenv/versions/3.11.7/lib/python3.11/asyncio/base_events.py", line 519, in _check_closed
+    raise RuntimeError('Event loop is closed')
+RuntimeError: Event loop is closed
