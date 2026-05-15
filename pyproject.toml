@@ -28,7 +28,9 @@ dev = [
     "pytest>=8.0",
 ]
 
-[tool.hatch.build.targets.wheel]
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--ignore=tests/fixtures --ignore=tests/demo_projects"
 packages = ["src/probe"]
 
 [tool.hatch.build.targets.sdist]

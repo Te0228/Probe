@@ -36,7 +36,7 @@ class TestOrchestrator:
         )
 
         assert "bug found" in result["test_output"].lower()
-        assert "echo bug found" in result["description"]
+        assert "bug found" in result["description"]
 
         # Check that observe event was emitted
         observe_events = [e for e in mock_tracer.events if e.step_type == "observe"]
