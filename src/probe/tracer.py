@@ -389,7 +389,10 @@ class HTMLReportBuilder:
                 if cur is not None:
                     for e in ev.data["evidence"]:
                         hid = e.get("hypothesis_id", "?")
-                        cur["evidence_map"].setdefault(hid, []).append(e)
+                        existing = cur["evidence_map"].get(hid, [])
+                        key = (e.get("verdict"), (e.get("reasoning") or "")[:50])
+                        if not any((x.get("verdict"), (x.get("reasoning") or "")[:50]) == key for x in existing):
+                            cur["evidence_map"].setdefault(hid, []).append(e)
                         hypo_verdict[hid] = e.get("verdict", "inconclusive")
 
         bug_desc = "Bug Investigation"
@@ -426,7 +429,7 @@ class HTMLReportBuilder:
                 conf = round((h.get("confidence") or 0) * 100)
                 badge = badge_map.get(verdict, "&mdash;")
                 stmt_raw = (h.get("statement") or "")[:120]
-                stmt = self._py_highlight(stmt_raw)
+                stmt = self._esc(stmt_raw)
                 parts.append('<div class="tree-node">')
                 parts.append(
                     f'<div class="dt-node-box state-{verdict}">'
@@ -456,7 +459,7 @@ class HTMLReportBuilder:
                     for ev_item in ev_list:
                         ev_v = ev_item.get("verdict", "inconclusive")
                         ev_raw = (ev_item.get("reasoning") or ev_item.get("detail") or "")[:80]
-                        ev_text = self._py_highlight(ev_raw)
+                        ev_text = self._esc(ev_raw)
                         parts.append(f'<div class="dt-ev-node state-{ev_v}">{self._esc(ev_v)}: {ev_text}</div>')
                     parts.append("</div>")
                 parts.append("</div>")  # close tree-node
@@ -485,14 +488,17 @@ class HTMLReportBuilder:
 
     def _build_evidence_html(self) -> str:
         rows: List[tuple[str, str, str]] = []
+        seen_evidence: set[tuple[str, str, str]] = set()
         for ev in self._events:
             if ev.step_type == "analyze" and ev.data.get("evidence"):
                 for e in ev.data["evidence"]:
-                    rows.append((
-                        e.get("hypothesis_id", "-"),
-                        e.get("verdict", "inconclusive"),
-                        (e.get("reasoning") or e.get("detail") or "")[:200],
-                    ))
+                    hid = e.get("hypothesis_id", "-")
+                    verdict = e.get("verdict", "inconclusive")
+                    reasoning = (e.get("reasoning") or e.get("detail") or "")[:200]
+                    dedup_key = (hid, verdict, reasoning[:50])
+                    if dedup_key not in seen_evidence:
+                        seen_evidence.add(dedup_key)
+                        rows.append((hid, verdict, reasoning))
             if ev.step_type == "execute":
                 rstate = ev.data.get("runtime_state") or {}
                 for frame in (rstate.get("stack_frames") or []):
@@ -508,8 +514,8 @@ class HTMLReportBuilder:
         parts = ['<table><tr><th>Hypothesis</th><th>Verdict</th><th>Reasoning / Evidence</th></tr>']
         for hid, verdict, reasoning in rows:
             vcls = f"verdict-{verdict}"
-            # reasoning may already be HTML (frame rows) — pass through; plain text gets highlighted
-            rtext = reasoning if reasoning.startswith("<") else self._py_highlight(reasoning)
+            # reasoning may already be HTML (frame rows) — pass through; plain text is escaped only
+            rtext = reasoning if reasoning.startswith("<") else self._esc(reasoning)
             parts.append(
                 f'<tr><td>{self._esc(hid)}</td>'
                 f'<td class="{vcls}">{self._esc(verdict)}</td>'
@@ -544,6 +550,120 @@ class HTMLReportBuilder:
 
     # ── timeline (Python-side static skeleton + JS for interactivity) ──────
 
+    def _tl_summary(self, ev: "TraceEvent") -> str:
+        """One-line human-readable summary for the collapsed timeline row."""
+        d = ev.data or {}
+        t = ev.step_type
+        if t == "observe":
+            cmd = d.get("test_command", d.get("bug_description", ""))
+            return self._esc(cmd[:90] + ("…" if len(cmd) > 90 else ""))
+        if t == "hypothesize":
+            hyps = d.get("hypotheses", [])
+            return self._esc(f"Generated {len(hyps)} hypothesis(es) — iteration {d.get('iteration', 0)}")
+        if t == "instrument":
+            action = d.get("action", "")
+            if action == "set_breakpoint":
+                file_ = d.get("file", "?")
+                line_ = d.get("line", "?")
+                verified = d.get("verified", False)
+                status = "verified" if verified else "pending"
+                return self._esc(f"Set breakpoint at {file_}:{line_} ({status})")
+            bps = d.get("breakpoints", [])
+            locs = ", ".join(f"{b.get('file','')}:{b.get('line','')}" for b in bps[:3])
+            more = f" +{len(bps)-3} more" if len(bps) > 3 else ""
+            return self._esc(f"Plan: {len(bps)} breakpoint(s): {locs}{more}")
+        if t == "execute":
+            return self._esc(f"Executed with {d.get('breakpoints_set', 0)} breakpoints")
+        if t == "analyze":
+            verdicts = d.get("verdicts", {})
+            parts = [f"{h}={v}" for h, v in verdicts.items()]
+            return self._esc(", ".join(parts) or "Analysis complete")
+        if t == "fix":
+            cause = d.get("root_cause", "")
+            conf = d.get("confidence", 0)
+            s = cause[:70] + ("…" if len(cause) > 70 else "")
+            return self._esc(f"{s} — {conf:.0%} confidence")
+        action = d.get("action", t)
+        return self._esc(str(action)[:90])
+
+    def _tl_detail_html(self, ev: "TraceEvent") -> str:
+        """Structured HTML for the expanded timeline body (no raw JSON)."""
+        d = ev.data or {}
+        t = ev.step_type
+
+        def field(key: str, val: str, mono: bool = False) -> str:
+            v = f"<code>{val}</code>" if mono else val
+            return f'<div class="tl-field"><span class="tl-key">{key}</span><span>{v}</span></div>'
+
+        if t == "observe":
+            cmd = self._esc(d.get("test_command", ""))
+            out = d.get("test_output", "")
+            lines = "\n".join(out.split("\n")[:20])
+            return (field("Command", cmd, mono=True) +
+                    f'<div class="tl-field"><span class="tl-key">Output</span>'
+                    f'<pre class="tl-pre">{self._esc(lines)}</pre></div>')
+
+        if t == "hypothesize":
+            hyps = d.get("hypotheses", [])
+            rows = "".join(
+                f'<tr><td class="tl-hid">{self._esc(h.get("hypothesis_id",""))}</td>'
+                f'<td>{self._esc(h.get("statement",""))}</td></tr>'
+                for h in hyps
+            )
+            return (f'<table class="tl-table"><thead><tr><th>ID</th><th>Statement</th></tr></thead>'
+                    f'<tbody>{rows}</tbody></table>')
+
+        if t == "instrument":
+            action = d.get("action", "")
+            if action == "set_breakpoint":
+                return (field("File", self._esc(f"{d.get('file','')}:{d.get('line','')}"), mono=True) +
+                        field("Verified", str(d.get("verified", False))) +
+                        field("Breakpoint ID", str(d.get("breakpoint_id", ""))))
+            bps = d.get("breakpoints", [])
+            rows = "".join(
+                f'<tr><td><code>{self._esc(b.get("file",""))}:{b.get("line","")}</code></td>'
+                f'<td>{self._esc(b.get("hypothesis_id",""))}</td>'
+                f'<td>{self._esc(str(b.get("condition") or "—"))}</td></tr>'
+                for b in bps
+            )
+            return (f'<table class="tl-table"><thead><tr><th>Location</th><th>Hypothesis</th>'
+                    f'<th>Condition</th></tr></thead><tbody>{rows}</tbody></table>')
+
+        if t == "execute":
+            n = d.get("breakpoints_set", 0)
+            rs = d.get("runtime_state") or {}
+            out = rs.get("test_output", "") if isinstance(rs, dict) else ""
+            lines = "\n".join(out.split("\n")[:15]) if out else ""
+            out_html = (f'<div class="tl-field"><span class="tl-key">Test Output</span>'
+                        f'<pre class="tl-pre">{self._esc(lines)}</pre></div>') if lines else ""
+            return field("Breakpoints Hit", str(n)) + out_html
+
+        if t == "analyze":
+            verdicts = d.get("verdicts", {})
+            evidence = d.get("evidence", [])
+            evmap = {e.get("hypothesis_id"): e for e in evidence}
+            rows = ""
+            for hid, v in verdicts.items():
+                vcls = f"verdict-{v}"
+                reasoning = evmap.get(hid, {}).get("reasoning", "")
+                r = reasoning[:130] + ("…" if len(reasoning) > 130 else "")
+                rows += (f'<tr><td class="tl-hid">{self._esc(hid)}</td>'
+                         f'<td class="{vcls}">{self._esc(v)}</td>'
+                         f'<td>{self._esc(r)}</td></tr>')
+            return (f'<table class="tl-table"><thead><tr><th>Hypothesis</th><th>Verdict</th>'
+                    f'<th>Reasoning</th></tr></thead><tbody>{rows}</tbody></table>')
+
+        if t == "fix":
+            cause = self._esc(d.get("root_cause", ""))
+            conf = d.get("confidence", 0)
+            return (field("Root Cause", cause) +
+                    field("Confidence", f"{conf:.0%}") +
+                    field("Hypothesis", self._esc(d.get("hypothesis_id", ""))) +
+                    field("Iterations", str(d.get("iterations", 0))))
+
+        action = self._esc(d.get("action", t))
+        return field("Action", action)
+
     def _build_timeline_html(self) -> str:
         """Render timeline step blocks statically; JS adds expand/collapse behavior."""
         if not self._events:
@@ -558,12 +678,11 @@ class HTMLReportBuilder:
             "execute": "tl-execute", "analyze": "tl-analyze",
             "iterate": "tl-iterate", "fix": "tl-fix", "observe": "tl-observe",
         }
-        parts = ['<div class="tl-wrap" id="tl-static">']
-        for ev in self._events:
+        parts = ['<div class="tl-wrap">']
+        for ev in sorted_events:
             css = color_map.get(ev.step_type, "tl-observe")
             last_cls = " tl-last" if ev.event_id == last_id else ""
             ts = ev.timestamp[11:19] if ev.timestamp else ""
-            # elapsed ms from first event
             try:
                 from datetime import datetime as _dt
                 elapsed = int(
@@ -572,19 +691,19 @@ class HTMLReportBuilder:
                 )
             except Exception:
                 elapsed = 0
-            tip_text = self._esc(f"+{elapsed}ms | {ev.event_id[:8]}")
-            detail_json = self._esc(json.dumps(ev.data, indent=2, ensure_ascii=False))
             did = f"tld-{ev.event_id}"
+            summary = self._tl_summary(ev)
+            detail = self._tl_detail_html(ev)
             parts.append(
-                f'<div class="tl-row">'
-                f'<div class="tl-step {css}{last_cls}" onclick="tlToggle(\'{did}\')">'
-                f'{self._esc(ts)} {self._esc(ev.step_type)}'
-                f'<div class="tip">{tip_text}</div>'
+                f'<div class="tl-card{last_cls}">'
+                f'<div class="tl-header" onclick="tlToggle(\'{did}\')" '
+                f'title="+{elapsed}ms | {self._esc(ev.event_id[:8])}">'
+                f'<span class="tl-badge {css}">{self._esc(ev.step_type)}</span>'
+                f'<span class="tl-ts">{ts}</span>'
+                f'<span class="tl-summary">{summary}</span>'
+                f'<span class="tl-chev" id="chv-{did}">&#9658;</span>'
                 f'</div>'
-                f'<div class="tl-detail" id="{did}">'
-                f'<strong>{self._esc(ev.step_type)}</strong> '
-                f'<span style="color:#8b949e">{self._esc(ev.event_id)}</span>'
-                f'<pre>{detail_json}</pre></div>'
+                f'<div class="tl-body" id="{did}">{detail}</div>'
                 f'</div>'
             )
         parts.append("</div>")
@@ -609,24 +728,33 @@ class HTMLReportBuilder:
 <title>Probe Debug Report — {sid[:8]}</title>
 <style>
 * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #c9d1d9; padding: 24px; }}
-h1 {{ color: #58a6ff; margin-bottom: 8px; }}
-h2 {{ color: #8b949e; margin: 24px 0 12px; border-bottom: 1px solid #21262d; padding-bottom: 4px; }}
-.subtitle {{ color: #8b949e; font-size: 14px; margin-bottom: 24px; }}
+body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #c9d1d9; padding: 32px 24px; }}
+.container {{ max-width: 1000px; margin: 0 auto; }}
+h1 {{ font-size: 22px; font-weight: 700; color: #e6edf3; margin-bottom: 4px; }}
+.subtitle {{ color: #8b949e; font-size: 13px; margin-bottom: 32px; }}
+.section {{ margin-bottom: 36px; }}
+h2 {{ font-size: 14px; font-weight: 600; color: #8b949e; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 12px; padding-bottom: 6px; border-bottom: 1px solid #21262d; }}
 
 /* ── Timeline ── */
-.tl-wrap {{ display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }}
-.tl-row {{ display: flex; align-items: flex-start; gap: 8px; }}
-.tl-step {{
-  position: relative; padding: 8px 14px; border-radius: 6px; cursor: pointer;
-  font-size: 13px; white-space: nowrap; flex-shrink: 0;
-  border: 2px solid transparent;
-  transition: box-shadow 0.2s, transform 0.1s;
+.tl-wrap {{ display: flex; flex-direction: column; gap: 3px; }}
+.tl-card {{
+  border: 1px solid #30363d; border-radius: 6px;
+  background: #161b22; overflow: hidden;
+  transition: border-color 0.15s;
 }}
-.tl-step:hover {{ transform: scale(1.03); }}
-.tl-step.tl-last {{
-  box-shadow: 0 0 0 2px #fff, 0 0 12px 4px rgba(88,166,255,0.7);
-  border-color: #58a6ff;
+.tl-card:hover {{ border-color: #484f58; }}
+.tl-card.tl-last {{
+  border-color: #388bfd;
+  box-shadow: 0 0 0 1px #388bfd, 0 0 10px 2px rgba(56,139,253,0.25);
+}}
+.tl-header {{
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 12px; cursor: pointer; user-select: none;
+}}
+.tl-header:hover {{ background: rgba(255,255,255,0.03); }}
+.tl-badge {{
+  font-size: 11px; font-weight: 600; padding: 2px 7px;
+  border-radius: 4px; white-space: nowrap; flex-shrink: 0; letter-spacing: 0.02em;
 }}
 .tl-hypothesize {{ background: #1f6feb; color: #fff; }}
 .tl-instrument  {{ background: #1a7f37; color: #fff; }}
@@ -635,25 +763,23 @@ h2 {{ color: #8b949e; margin: 24px 0 12px; border-bottom: 1px solid #21262d; pad
 .tl-iterate     {{ background: #cf222e; color: #fff; }}
 .tl-fix         {{ background: #bf4b8a; color: #fff; }}
 .tl-observe     {{ background: #6e7681; color: #fff; }}
-/* expand/collapse panel */
-.tl-detail {{
-  background: #161b22; border: 1px solid #30363d; border-radius: 6px;
-  padding: 0 14px; max-height: 0; overflow: hidden;
+.tl-ts {{ font-size: 11px; color: #6e7681; font-family: ui-monospace, monospace; flex-shrink: 0; }}
+.tl-summary {{ font-size: 12px; color: #8b949e; flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }}
+.tl-chev {{ font-size: 10px; color: #484f58; flex-shrink: 0; transition: transform 0.2s; }}
+.tl-body {{
+  border-top: 1px solid #21262d; padding: 0 12px;
+  max-height: 0; overflow: hidden;
   transition: max-height 0.2s ease, padding 0.2s ease;
   font-size: 12px;
 }}
-.tl-detail.open {{ max-height: 400px; padding: 12px 14px; overflow-y: auto; }}
-.tl-detail pre {{ background: #0d1117; padding: 10px; border-radius: 4px; overflow-x: auto; margin-top: 6px; }}
-/* tooltip */
-.tl-step .tip {{
-  visibility: hidden; opacity: 0;
-  position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
-  background: #21262d; border: 1px solid #30363d; border-radius: 4px;
-  padding: 4px 8px; font-size: 11px; white-space: nowrap; color: #c9d1d9;
-  pointer-events: none; transition: opacity 0.15s;
-  z-index: 100;
-}}
-.tl-step:hover .tip {{ visibility: visible; opacity: 1; }}
+.tl-body.open {{ max-height: 520px; padding: 12px; overflow-y: auto; }}
+.tl-field {{ display: flex; align-items: flex-start; gap: 10px; margin-bottom: 6px; font-size: 12px; }}
+.tl-key {{ font-size: 11px; color: #6e7681; font-weight: 600; white-space: nowrap; min-width: 90px; padding-top: 1px; text-transform: uppercase; letter-spacing: 0.04em; }}
+.tl-pre {{ background: #0d1117; padding: 8px 10px; border-radius: 4px; overflow-x: auto; font-size: 11px; line-height: 1.55; max-height: 180px; overflow-y: auto; flex: 1; font-family: ui-monospace, monospace; }}
+.tl-table {{ width: 100%; border-collapse: collapse; font-size: 12px; }}
+.tl-table th {{ color: #6e7681; font-weight: 600; text-align: left; padding: 4px 8px; border-bottom: 1px solid #30363d; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }}
+.tl-table td {{ padding: 5px 8px; border-bottom: 1px solid #161b22; vertical-align: top; color: #c9d1d9; }}
+.tl-hid {{ color: #58a6ff; font-weight: 600; white-space: nowrap; }}
 
 /* ── Decision Tree ── */
 .dt-container {{ overflow-x: auto; padding: 12px 0; }}
@@ -714,26 +840,38 @@ pre.diff {{ background: #0d1117; padding: 12px; border-radius: 4px; overflow-x: 
 </style>
 </head>
 <body>
+<div class="container">
 <h1>Probe Debug Report</h1>
-<div class="subtitle">Session: {sid[:16]} &middot; {n_events} events</div>
+<div class="subtitle">Session: <code>{sid[:16]}</code> &middot; {n_events} events</div>
 
+<div class="section">
 <h2>Timeline</h2>
 {timeline_html}
+</div>
 
+<div class="section">
 <h2>Hypotheses &amp; Decision Tree</h2>
 {tree_html}
+</div>
 
+<div class="section">
 <h2>Evidence Gallery</h2>
 {evidence_html}
+</div>
 
+<div class="section">
 <h2>Patch Review</h2>
 {patch_html}
+</div>
+</div>
 
 <script>
-/* Timeline expand/collapse — all HTML is server-side rendered */
 function tlToggle(id) {{
   var d = document.getElementById(id);
-  if(d) d.classList.toggle('open');
+  var c = document.getElementById('chv-' + id);
+  if (!d) return;
+  var open = d.classList.toggle('open');
+  if (c) c.style.transform = open ? 'rotate(90deg)' : '';
 }}
 </script>
 </body>
