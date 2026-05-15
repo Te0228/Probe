@@ -26,7 +26,7 @@ Every step emits a `TraceEvent`. The orchestrator depends on abstractions (`ITra
 
 ### 3. Hypothesis Engine (`hypothesis.py`)
 
-Generates structured hypotheses via Claude API (with heuristic fallback). Each hypothesis must have:
+Generates structured hypotheses via the configured LLM backend (DeepSeek by default, Anthropic Claude as opt-in extra) with a heuristic fallback when no API key is set. Each hypothesis must have:
 
 | Field | Description |
 |-------|-------------|
@@ -61,7 +61,7 @@ The observability backbone. Contains:
 
 Takes a confirmed hypothesis and source code context, and:
 
-1. Uses Claude API (with heuristic fallback) to generate a minimal patch as a unified diff
+1. Uses the configured LLM backend (with heuristic fallback) to generate a minimal patch as a unified diff
 2. Applies the patch in a temporary sandbox directory
 3. Runs the test command in the sandbox to verify the fix passes
 4. Returns a `PatchResult` with the diff, application status, and sandbox test result
@@ -110,9 +110,10 @@ User / MCP Client
                  │              │              │
                  ▼              ▼              ▼
             ┌──────────┐   ┌──────────┐   ┌──────────┐
-            │Claude API│   │ debugpy  │   │trace.jsonl
-            │          │   │  (TCP)   │   │report.html
-            └──────────┘   └────┬─────┘   │live Rich  │
+            │LLM       │   │ debugpy  │   │trace.jsonl
+            │backend   │   │  (TCP)   │   │report.html
+            │(DeepSeek)│   │          │   │live Rich  │
+            └──────────┘   └────┬─────┘   └──────────┘
                                 │         └──────────┘
                                 ▼
                          ┌──────────┐

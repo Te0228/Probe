@@ -50,12 +50,20 @@ class AnthropicClient:
                 return dict(block.input)
         return {}
 
-    def call_text(self, prompt: str, max_tokens: int = 1024) -> str:
-        response = self._client.messages.create(
-            model=self._model,
-            max_tokens=max_tokens,
-            messages=[{"role": "user", "content": prompt}],
-        )
+    def call_text(
+        self,
+        prompt: str,
+        max_tokens: int = 1024,
+        system: str | None = None,
+    ) -> str:
+        kwargs: dict[str, Any] = {
+            "model": self._model,
+            "max_tokens": max_tokens,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        if system:
+            kwargs["system"] = system
+        response = self._client.messages.create(**kwargs)
         if not response.content:
             return ""
         return response.content[0].text

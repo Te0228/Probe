@@ -84,7 +84,7 @@ For breakpoint locations, use the ACTUAL line numbers from the source code provi
 
 
 class HypothesisEngine:
-    """Generates hypotheses using Claude API with structured output."""
+    """Generates hypotheses using the configured LLM backend with structured output."""
 
     def __init__(self, config: ProbeConfig | None = None, tracer: Any | None = None):
         self._config = config or ProbeConfig.from_env()
@@ -177,7 +177,7 @@ class HypothesisEngine:
         bug_description: str,
         source_code_context: dict[str, str] | None = None,
     ) -> list[dict[str, Any]]:
-        """Generate hypotheses heuristically when Claude API is unavailable.
+        """Generate hypotheses heuristically when the LLM backend is unavailable.
 
         Analyses the bug description and source code for common bug patterns:
         TypeError, AttributeError, ValueError, off-by-one, etc.

@@ -13,9 +13,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import anthropic
-
 from probe.config import ProbeConfig
+from probe.llm import LLMClient, get_llm_client
 
 
 FIX_SYSTEM_PROMPT = """You are an expert software engineer debugging a failing test.
@@ -57,15 +56,11 @@ class FixGenerator:
     ) -> None:
         self._config = config or ProbeConfig.from_env()
         self._tracer = tracer
-        self._client: anthropic.Anthropic | None = None
+        self._client: LLMClient | None = None
 
-    def _get_client(self) -> anthropic.Anthropic:
-        """Return or create the Anthropic client."""
+    def _get_client(self) -> LLMClient:
         if self._client is None:
-            api_key = self._config.anthropic_api_key
-            if not api_key:
-                raise ValueError("ANTHROPIC_API_KEY is not set")
-            self._client = anthropic.Anthropic(api_key=api_key)
+            self._client = get_llm_client(self._config)
         return self._client
 
     def generate_fix(
@@ -112,7 +107,7 @@ class FixGenerator:
         hypothesis: dict[str, Any],
         source_code_context: dict[str, str],
     ) -> str:
-        """Use Claude API to generate a patch for the confirmed hypothesis."""
+        """Use the configured LLM backend to generate a patch for the confirmed hypothesis."""
         statement = hypothesis.get("statement", "")
         falsification = hypothesis.get("falsification_criteria", "")
 
@@ -128,14 +123,11 @@ class FixGenerator:
         user_prompt = "\n".join(user_prompt_parts)
 
         client = self._get_client()
-        response = client.messages.create(
-            model=self._config.model,
+        text = client.call_text(
+            prompt=user_prompt,
             max_tokens=2048,
             system=FIX_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": user_prompt}],
         )
-
-        text = response.content[0].text if response.content else ""
 
         # Extract the diff from the response (strip markdown fences if present)
         diff = text

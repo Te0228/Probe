@@ -351,7 +351,7 @@ class Orchestrator:
         previous_evidence: list[dict[str, Any]] | None = None,
         iteration: int = 0,
     ) -> list[dict[str, Any]]:
-        """Generate hypotheses using the Claude API."""
+        """Generate hypotheses using the configured LLM backend."""
         return self._hypothesis_engine.generate_hypotheses(
             bug_description=bug_description,
             source_code_context=source_code,

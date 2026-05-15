@@ -74,10 +74,19 @@ class DeepSeekClient:
 
         return {}
 
-    def call_text(self, prompt: str, max_tokens: int = 1024) -> str:
+    def call_text(
+        self,
+        prompt: str,
+        max_tokens: int = 1024,
+        system: str | None = None,
+    ) -> str:
+        messages: list[dict[str, Any]] = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
         response = self._client.chat.completions.create(
             model=self._model,
             max_tokens=max_tokens,
-            messages=[{"role": "user", "content": prompt}],
+            messages=messages,
         )
         return response.choices[0].message.content or ""

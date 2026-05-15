@@ -31,19 +31,24 @@ class LLMClient(Protocol):
         """
         ...
 
-    def call_text(self, prompt: str, max_tokens: int = 1024) -> str:
-        """Call the model with a single user prompt, return raw text."""
+    def call_text(
+        self,
+        prompt: str,
+        max_tokens: int = 1024,
+        system: str | None = None,
+    ) -> str:
+        """Call the model with a user prompt (and optional system prompt), return raw text."""
         ...
 
 
 def get_llm_client(config) -> LLMClient:
     """Build the configured LLM backend.
 
-    Reads ``config.llm_backend``: ``"anthropic"`` (default) or ``"deepseek"``.
+    Reads ``config.llm_backend``: ``"deepseek"`` (default) or ``"anthropic"``.
     The actual SDK is imported lazily so users without a given provider
     installed are not forced to install it.
     """
-    backend = (getattr(config, "llm_backend", "") or "anthropic").lower()
+    backend = (getattr(config, "llm_backend", "") or "deepseek").lower()
 
     if backend == "anthropic":
         from probe.llm.anthropic_client import AnthropicClient

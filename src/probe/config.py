@@ -9,9 +9,9 @@ class ProbeConfig:
     """Probe configuration loaded from environment variables with sensible defaults.
 
     LLM backend selection:
-      - ``LLM_BACKEND``: ``"anthropic"`` (default) or ``"deepseek"``
-      - ``ANTHROPIC_API_KEY`` / ``PROBE_MODEL``: used when backend = anthropic
+      - ``LLM_BACKEND``: ``"deepseek"`` (default) or ``"anthropic"``
       - ``DEEPSEEK_API_KEY`` / ``DEEPSEEK_MODEL``: used when backend = deepseek
+      - ``ANTHROPIC_API_KEY`` / ``PROBE_MODEL``: used when backend = anthropic (opt-in extra)
     """
 
     # ── LLM backend selection ──────────────────────────────────────────────────

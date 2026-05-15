@@ -4,13 +4,13 @@
 
 The hypothesis engine (`src/probe/hypothesis.py`) generates structured, falsifiable root-cause hypotheses using two paths:
 
-### 1. Claude API (Primary)
+### 1. LLM backend (primary)
 
-When `ANTHROPIC_API_KEY` is set, hypotheses are generated using Claude with structured output (tool use). The flow:
+Hypotheses are generated through the [`LLMClient`](../src/probe/llm/base.py) abstraction. DeepSeek (`deepseek-chat`) is the default backend; Anthropic Claude is available as an opt-in extra. Both providers enforce the same JSON schema via their respective structured-output mechanisms — Anthropic's `tool_use` or OpenAI-compatible `function` calling. The flow:
 
-1. **Prompt construction** -- The system prompt instructs Claude to act as a debugging expert, analyzing the failing test output and source code to generate 2-3 hypotheses. Each hypothesis must have all 5 required fields.
+1. **Prompt construction** -- The system prompt instructs the model to act as a debugging expert, analyzing the failing test output and source code to generate 2-3 hypotheses. Each hypothesis must have all 5 required fields.
 
-2. **Tool use** -- Claude is forced to use `tool_choice: {type: "tool", name: "output_hypotheses"}`. The tool's `input_schema` enforces the JSON structure:
+2. **Forced structured output** -- The model is forced to emit a function/tool call named `output_hypotheses` whose argument schema enforces the JSON structure:
    ```json
    {
      "type": "object",
@@ -41,7 +41,7 @@ When `ANTHROPIC_API_KEY` is set, hypotheses are generated using Claude with stru
 
 ### 2. Heuristic Fallback
 
-When the Claude API is unavailable (no key, network error, quota exceeded), the engine uses pattern matching against common Python bug categories:
+When the LLM backend is unavailable (no key set, network error, quota exceeded), the engine uses pattern matching against common Python bug categories:
 
 | Bug Pattern | Detection Signal | Generated Hypothesis |
 |-------------|-----------------|---------------------|
