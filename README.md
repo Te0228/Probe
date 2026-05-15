@@ -1,5 +1,7 @@
 # Probe
 
+[![Tests](https://github.com/Te0228/Probe/actions/workflows/test.yml/badge.svg)](https://github.com/Te0228/Probe/actions/workflows/test.yml)
+
 **A hypothesis-driven AI debugging agent. Investigates bugs the way a senior engineer would, instead of guessing the way an LLM does.**
 
 Probe diagnoses bug root causes by generating *falsifiable* hypotheses, setting real breakpoints via the Debug Adapter Protocol (DAP), reading live runtime state, and ruling alternatives out with evidence — producing an auditable investigation trail, not a one-shot guess.
